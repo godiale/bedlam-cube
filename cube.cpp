@@ -545,6 +545,11 @@ int main()
       element_instances.push_back(unique);
    }
 
+   if (element_instances.empty())
+   {
+      throw std::runtime_error("element_instances empty");
+   }
+
    std::cout << "Generated instances: |"; 
    for (const auto& ei : element_instances)
    {
@@ -563,21 +568,17 @@ int main()
          instances.push_back(element_instances[n]);
       }
 
-      if (! element_instances.empty())
+      ElementVec this_thread_instances;
+      const ElementVec& last_element_instances = element_instances.back();
+      for (int n=0, nn=last_element_instances.size(); n < nn; ++n)
       {
-         ElementVec this_thread_instances;
-
-         const ElementVec& last_element_instances = element_instances.back();
-         for (int n=0, nn=last_element_instances.size(); n < nn; ++n)
+         if (n % MAX_THREAD == thread_id)
          {
-            if (n % MAX_THREAD == thread_id)
-            {
-               this_thread_instances.push_back(last_element_instances[n]);
-            }
+            this_thread_instances.push_back(last_element_instances[n]);
          }
-
-         instances.push_back(this_thread_instances);
       }
+
+      instances.push_back(this_thread_instances);
 
       threads.push_back(std::thread (thread_worker,
                                      thread_id, std::ref(log_mutex), 
