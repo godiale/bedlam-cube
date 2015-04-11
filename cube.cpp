@@ -88,7 +88,7 @@ inline int& M_at(Matrix& m, int i, int j)
    return m[3 * i + j];
 }
 
-Matrix M_mult(const Matrix& a, const Matrix& b)
+Matrix M_mul(const Matrix& a, const Matrix& b)
 {
    Matrix m;
    for (int i=0; i < 3; ++i)
@@ -104,7 +104,7 @@ Matrix M_mult(const Matrix& a, const Matrix& b)
    return m;
 }
 
-Point M_mult(const Matrix& m, const Point& x)
+Point M_mul(const Matrix& m, const Point& x)
 {
    Point y;
    for (int i=0; i < 3; ++i)
@@ -119,11 +119,67 @@ Point M_mult(const Matrix& m, const Point& x)
    return y;
 }
 
+Points M_mul(const Matrix& m, const Points& points)
+{
+   Points ret;
+   for (const auto& p : points)
+   {
+      ret.push_back(M_mul(m, p));
+   }
+   return ret;
+}
+
+Points P_sum(const Point& p0, const Points& points)
+{
+   Points ret;
+   for (const auto& p : points)
+   {
+      ret.push_back(P_sum(p0, p));
+   }
+   return ret;
+} 
+
+Points P_mul(const int n, const Points& points)
+{
+   Points ret;
+   for (const auto& p : points)
+   {
+      ret.push_back({p[0] * n, p[1] * n, p[2] * n});
+   }
+   return ret;
+}
+
+Points P_div(const int n, const Points& points)
+{
+   Points ret;
+   for (const auto& p : points)
+   {
+      if (n == 0 || p[0] % n || p[1] % n || p[2] % n)
+      {
+         throw std::runtime_error("P_div");
+      }
+      ret.push_back({p[0] / n, p[1] / n, p[2] / n});
+   }
+   return ret;
+}
+
 bool in_cube(const Point& p, const int size)
 {
    return (0 <= p[0] && p[0] < size &&
            0 <= p[1] && p[1] < size &&
            0 <= p[2] && p[2] < size);
+}
+
+bool in_cube(const Points& points, const int size)
+{
+   for (const auto& p : points)
+   {
+      if (! in_cube(p, size))
+      {
+         return false;
+      }
+   }
+   return true;
 }
 
 struct Element
@@ -133,7 +189,28 @@ struct Element
 
    Element(const std::string& name_, const Points& points_)
       : name(name_), points(points_)
-   {}
+   {
+      normalize();
+   }
+ 
+   Element(const Element& o)
+      : name(o.name), points(o.points)
+   {
+      normalize();
+   }
+
+   Element& operator= (const Element& o)
+   {
+      name   = o.name;
+      points = o.points;
+      normalize();
+   }
+
+private:
+   void normalize()
+   {
+      std::sort(points.begin(), points.end());
+   }
 };
 typedef std::vector<Element>    ElementVec;
 typedef std::vector<ElementVec> ElementVecVec;
@@ -159,18 +236,6 @@ struct Rotator
    }
 };
 typedef std::vector<Rotator> RotatorVec;
-
-Element rotate(const Element& element, const Rotator& rotator)
-{
-   Points points;
-
-   for (const auto& p : element.points)
-   {
-      points.push_back(M_mult(rotator.matrix, p));
-   }
-
-   return Element(element.name + rotator.name, points);
-}
 
 ElementVec init_elements_4x4()
 {
@@ -202,7 +267,7 @@ ElementVec init_elements_2x2()
 Rotator combine(const Rotator& a, const Rotator& b)
 {
    return Rotator(a.name + b.name,
-                  M_mult(a.matrix, b.matrix));
+                  M_mul(a.matrix, b.matrix));
 }
 
 RotatorVec init_rotators()
@@ -302,8 +367,9 @@ ElementVec generate_rotations(const Element& element,
    ElementVec rotations;
 
    for (const auto& r : rotators)
-   {
-      rotations.push_back(rotate(element, r));
+   {   
+      rotations.push_back(Element(element.name + r.name,
+                                  M_mul(r.matrix, element.points)));
    }
 
    return rotations;
@@ -317,28 +383,14 @@ ElementVec generate_instances(const Element& element, const int size)
    for (int y = 0; y < size; ++y)
    for (int z = 0; z < size; ++z)
    {
-      const Point shift = { x, y, z };
-      
-      Element instance (element);
-      bool inside = true;
+      const Point  shift  = { x, y, z };
+      const Points points = P_sum(shift, element.points);
 
-      for (auto& p : instance.points)
-      {
-         p = P_sum(p, shift);
-
-         if (! in_cube(p, size))
-         {
-            inside = false;
-         }
-      }
-
-      if (inside)
+      if (in_cube(points, size))
       {
          std::ostringstream ost;
-         ost << x << "," << y << "," << z << "-";
-         instance.name = ost.str() + instance.name;
-         std::sort(instance.points.begin(), instance.points.end());
-         instances.push_back(instance);
+         ost << x << "," << y << "," << z << "-" << element.name;
+         instances.push_back(Element(ost.str(), points));
       }
    }
 
@@ -358,7 +410,9 @@ ElementVec generate_instances(const ElementVec& elements, const int size)
    return instances;
 }
 
-ElementVec remove_duplicates(const ElementVec & elements)
+template<typename F>
+ElementVec remove_equivalent(const ElementVec& elements,
+                             const F& checker)
 {
    ElementVec instances;
 
@@ -369,7 +423,7 @@ ElementVec remove_duplicates(const ElementVec & elements)
 
       for (int j=0, jj=instances.size(); j < jj; ++j)
       {
-         if (e.points == instances[j].points)
+         if (checker.equal(e, instances[j]))
          {
             duplicate_found = true;
             break;
@@ -383,6 +437,72 @@ ElementVec remove_duplicates(const ElementVec & elements)
    }
 
    return instances;
+}
+
+ElementVec remove_duplicates(const ElementVec& elements)
+{
+   struct Checker
+   {
+      bool equal(const Element& a, const Element& b) const
+      {
+         return (a.points == b.points);
+      }
+   };
+
+   return remove_equivalent(elements, Checker());
+}
+
+ElementVec remove_congruent(const ElementVec& elements,
+                            const RotatorVec& rotators,
+                            const int size)
+{
+   struct Checker
+   {
+      const RotatorVec& rotators;
+      const int size;
+      const Point shift_p2;
+      const Point shift_m2;
+
+      Checker(const RotatorVec& rotators_, const int size_)
+         : rotators(rotators_)
+         , size(size_)
+         , shift_p2({+(size-1),+(size-1),+(size-1)})
+         , shift_m2({-(size-1),-(size-1),-(size-1)})
+      {}
+
+      bool equal(const Element& a, const Element& b) const
+      {
+         bool found_congruent = false;
+         Points points;
+
+         for (const auto& r : rotators)
+         {
+            points = a.points;
+            points = P_mul(2,        points);
+            points = P_sum(shift_m2, points);
+            points = M_mul(r.matrix, points);
+            points = P_sum(shift_p2, points);
+            points = P_div(2,        points);
+
+            if (! in_cube(points, size))
+            {
+               std::cout << print_points(points) << std::endl;
+               throw std::runtime_error("remove_congruent: not in_cube");
+            }
+
+            Element e ("", points); // for normalization
+            if (e.points == b.points)
+            {
+               found_congruent = true;
+               break;
+            }
+         }
+
+         return found_congruent;
+      }
+   };
+
+   return remove_equivalent(elements, Checker(rotators, size));
 }
 
 Code encode(const Element& element, const int size)
@@ -549,6 +669,9 @@ int main()
    {
       throw std::runtime_error("element_instances empty");
    }
+
+   element_instances[0] = remove_congruent(element_instances[0], 
+                                           rotators, ARENA_SIZE);
 
    std::cout << "Generated instances: |"; 
    for (const auto& ei : element_instances)
