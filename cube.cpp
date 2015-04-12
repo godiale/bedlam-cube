@@ -567,6 +567,8 @@ void thread_worker(const int thread_id,  std::mutex& log_mutex,
 
    long iteration = 0;
    const time_t start_time = time(0);
+   long last_iteration = 0;
+   int last_time = start_time;
 
    while (e > 0 || i[0] < ii[0])
    {
@@ -574,16 +576,26 @@ void thread_worker(const int thread_id,  std::mutex& log_mutex,
 
       if (iteration % (long(10000)*1000000) == 0)
       {
-         const time_t current_time = time(0);
-         const int duration = current_time - start_time + 1;
-         const double ops_avg = double(iteration) / 1000000 / duration;
-         const long ops_total = double(iteration) / 1000000;
-         
+         const time_t current_time   = time(0);
+         const int    total_duration = current_time - start_time + 1;
+         const long   total_ops      = double(iteration) / 1000000;
+         const double avg_ops        = double(total_ops) / total_duration;
+         const int    last_duration  = current_time - last_time + 1;
+         const long   last_ops       = double(iteration - last_iteration)
+                                              / 1000000 / last_duration;
+
+         last_iteration = iteration;
+         last_time      = current_time;
+
          std::lock_guard<std::mutex> guard(log_mutex);
 
-         std::cout << "Thread "         << thread_id << ": "
-                   << "Done "           << ops_total
-                   << "M ops, average " << ops_avg << "M/sec" << std::endl;
+         std::cout << "Thread "       << thread_id
+                   << ": Done "       << total_ops      << " G ops"
+                   << ", Time "       << total_duration << " sec"
+                   << ", Ops (avg) "  << avg_ops        << " M/sec"
+                   << ", Last "       << last_duration  << " sec"
+                   << ", Ops (last) " << last_ops       << " M/sec"
+                   << std::endl;
 
          for (int n=0, nn=ee; n < nn; ++n)
          {
