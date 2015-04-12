@@ -581,7 +581,7 @@ void thread_worker(const int thread_id,  std::mutex& log_mutex,
          const long   total_ops      = double(iteration) / 1000000;
          const double avg_ops        = double(total_ops) / total_duration;
          const int    last_duration  = current_time - last_time + 1;
-         const long   last_ops       = double(iteration - last_iteration)
+         const double last_ops       = double(iteration - last_iteration)
                                               / 1000000 / last_duration;
 
          last_iteration = iteration;
