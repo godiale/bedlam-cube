@@ -12,6 +12,9 @@
 #include <mutex>
 #include <functional>
 
+#define likely(x)   __builtin_expect((x),1)
+#define unlikely(x) __builtin_expect((x),0)
+
 typedef std::array<int, 3> Point;
 typedef std::vector<Point> Points;
 
@@ -574,7 +577,7 @@ void thread_worker(const int thread_id,  std::mutex& log_mutex,
    {
       ++iteration;
 
-      if (iteration % (long(10000)*1000000) == 0)
+      if (unlikely(iteration % (long(10000)*1000000) == 0))
       {
          const time_t current_time   = time(0);
          const int    total_duration = current_time - start_time + 1;
