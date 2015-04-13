@@ -23,6 +23,8 @@ typedef std::array<int, 9> Matrix;
 typedef unsigned long Code;
 typedef std::vector<Code>  CodeVec;
 
+typedef std::vector<int> IdxVec;
+
 std::string print_code(const Code& code, const int size)
 {
    std::ostringstream ost;
@@ -544,6 +546,56 @@ std::vector<CodeVec> encode(const ElementVecVec& element_instances,
    return element_codes;
 }
 
+class IterationReporter
+{
+   std::mutex&  m_log_mutex;
+
+   const int    m_thread_id;
+   const time_t m_start_time;
+   time_t       m_last_time;
+   long         m_last_iteration;
+
+public:
+   IterationReporter(const int thread_id, std::mutex& log_mutex)
+      : m_thread_id      (thread_id)
+      , m_log_mutex      (log_mutex)
+      , m_start_time     (time(0))
+      , m_last_time      (time(0))
+      , m_last_iteration (0)
+   {}
+
+   void report(const long iteration, 
+               const int ee, const IdxVec& i, const IdxVec& ii)
+   {
+      const time_t current_time   = time(0);
+      const int    total_duration = current_time - m_start_time + 1;
+      const long   total_ops      = double(iteration) / 1000000;
+      const double avg_ops        = double(total_ops) / total_duration;
+      const int    last_duration  = current_time - m_last_time + 1;
+      const double last_ops       = double(iteration - m_last_iteration)
+                                           / 1000000 / last_duration;
+
+      m_last_time      = current_time;
+      m_last_iteration = iteration;
+
+      std::lock_guard<std::mutex> guard (m_log_mutex);
+
+      std::cout << "Thread "       << m_thread_id
+                << ": Done "       << total_ops      << " M ops"
+                << ", Time "       << total_duration << " sec"
+                << ", Ops (avg) "  << avg_ops        << " M/sec"
+                << ", Last "       << last_duration  << " sec"
+                << ", Ops (last) " << last_ops       << " M/sec"
+                << std::endl;
+
+      for (int n=0, nn=ee; n < nn; ++n)
+      {
+         std::cout << i[n] << ":" << ii[n] << "|";
+      }
+      std::cout << std::endl;
+   }
+};
+
 void thread_worker(const int thread_id,  std::mutex& log_mutex,
                    const int ARENA_SIZE, const Code ARENA_FULL,
                    ElementVecVec element_instances)
@@ -552,11 +604,8 @@ void thread_worker(const int thread_id,  std::mutex& log_mutex,
                        encode(element_instances, ARENA_SIZE);
 
    CodeVec arena;
-
-   typedef std::vector<int> IdxVec;
-
-   IdxVec i;
-   IdxVec ii;
+   IdxVec  i;
+   IdxVec  ii;
 
    for (const auto& c : element_codes)
    {
@@ -569,9 +618,7 @@ void thread_worker(const int thread_id,  std::mutex& log_mutex,
    int ee = element_codes.size();
 
    long iteration = 0;
-   const time_t start_time = time(0);
-   long last_iteration = 0;
-   int last_time = start_time;
+   IterationReporter reporter(thread_id, log_mutex);
 
    while (e > 0 || i[0] < ii[0])
    {
@@ -579,31 +626,7 @@ void thread_worker(const int thread_id,  std::mutex& log_mutex,
 
       if (unlikely(iteration % (long(10000)*1000000) == 0))
       {
-         const time_t current_time   = time(0);
-         const int    total_duration = current_time - start_time + 1;
-         const long   total_ops      = double(iteration) / 1000000;
-         const double avg_ops        = double(total_ops) / total_duration;
-         const int    last_duration  = current_time - last_time + 1;
-         const double last_ops       = double(iteration - last_iteration)
-                                              / 1000000 / last_duration;
-         last_iteration = iteration;
-         last_time      = current_time;
-
-         std::lock_guard<std::mutex> guard(log_mutex);
-
-         std::cout << "Thread "       << thread_id
-                   << ": Done "       << total_ops      << " M ops"
-                   << ", Time "       << total_duration << " sec"
-                   << ", Ops (avg) "  << avg_ops        << " M/sec"
-                   << ", Last "       << last_duration  << " sec"
-                   << ", Ops (last) " << last_ops       << " M/sec"
-                   << std::endl;
-
-         for (int n=0, nn=ee; n < nn; ++n)
-         {
-            std::cout << i[n] << ":" << ii[n] << "|";
-         }
-         std::cout << std::endl;
+         reporter.report(iteration, ee, i, ii);
       }
 
       const Code code = element_codes[e][i[e]];
