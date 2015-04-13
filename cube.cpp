@@ -11,6 +11,7 @@
 #include <thread>
 #include <mutex>
 #include <functional>
+#include <cassert>
 
 #define likely(x)   __builtin_expect((x),1)
 #define unlikely(x) __builtin_expect((x),0)
@@ -564,8 +565,7 @@ public:
       , m_last_iteration (0)
    {}
 
-   void report(const long iteration, 
-               const int ee, const IdxVec& i, const IdxVec& ii)
+   void report(const long iteration, const IdxVec& i, const IdxVec& ii)
    {
       const time_t current_time   = time(0);
       const int    total_duration = current_time - m_start_time + 1;
@@ -588,11 +588,38 @@ public:
                 << ", Ops (last) " << last_ops       << " M/sec"
                 << std::endl;
 
-      for (int n=0, nn=ee; n < nn; ++n)
+      for (int n=0, nn=i.size(); n < nn; ++n)
       {
          std::cout << i[n] << ":" << ii[n] << "|";
       }
       std::cout << std::endl;
+   }
+};
+
+class SolutionReporter
+{
+   std::mutex& m_log_mutex;
+
+   const ElementVecVec& m_element_instances;
+
+public:
+   SolutionReporter(std::mutex& log_mutex,
+                    const ElementVecVec& element_instances)
+      : m_log_mutex         (log_mutex)
+      , m_element_instances (element_instances)
+   {}
+
+   void report(const IdxVec& i)
+   {
+      std::lock_guard<std::mutex> guard(m_log_mutex);
+
+      std::cout << "========== SOLUTION ==========" << std::endl;
+      for (int n=0, nn=i.size(); n < nn; ++n)
+      {
+         const Element& e = m_element_instances[n][i[n]];
+         std::cout << e.name << ": " << print_points(e.points)  << std::endl;
+      }
+      std::cout << "==============================" << std::endl;
    }
 };
 
@@ -618,7 +645,9 @@ void thread_worker(const int thread_id,  std::mutex& log_mutex,
    int ee = element_codes.size();
 
    long iteration = 0;
-   IterationReporter reporter(thread_id, log_mutex);
+
+   IterationReporter iteration_reporter(thread_id, log_mutex);
+   SolutionReporter  solution_reporter (log_mutex, element_instances);
 
    while (e > 0 || i[0] < ii[0])
    {
@@ -626,7 +655,7 @@ void thread_worker(const int thread_id,  std::mutex& log_mutex,
 
       if (unlikely(iteration % (long(10000)*1000000) == 0))
       {
-         reporter.report(iteration, ee, i, ii);
+         iteration_reporter.report(iteration, i, ii);
       }
 
       const Code code = element_codes[e][i[e]];
@@ -646,15 +675,7 @@ void thread_worker(const int thread_id,  std::mutex& log_mutex,
 
       if (unlikely(arena[e] == ARENA_FULL))
       {
-         std::lock_guard<std::mutex> guard(log_mutex);
-
-         std::cout << "========== SOLUTION ==========" << std::endl;
-         for (int n=0, nn=ee; n < nn; ++n)
-         {
-            const Element& e = element_instances[n][i[n]];
-            std::cout << e.name << ": " << print_points(e.points)  << std::endl;
-         }
-         std::cout << "==============================" << std::endl;
+         solution_reporter.report(i);
          goto next_i;
       }
 
