@@ -169,18 +169,29 @@ Points P_div(const int n, const Points& points)
    return ret;
 }
 
-bool in_cube(const Point& p, const int size)
+class InCubeChecker
 {
-   return (0 <= p[0] && p[0] < size &&
-           0 <= p[1] && p[1] < size &&
-           0 <= p[2] && p[2] < size);
-}
+   const int size;
 
-bool in_cube(const Points& points, const int size)
+public:
+   InCubeChecker(const int size_)
+      : size(size_)
+   {}
+
+   bool do_check(const Point& p) const
+   {
+      return (0 <= p[0] && p[0] < size &&
+              0 <= p[1] && p[1] < size &&
+              0 <= p[2] && p[2] < size);
+   }
+};
+
+template<typename Checker>
+bool check_points(const Points& points, const Checker& checker)
 {
    for (const auto& p : points)
    {
-      if (! in_cube(p, size))
+      if (! checker.do_check(p))
       {
          return false;
       }
@@ -392,7 +403,7 @@ ElementVec generate_instances(const Element& element, const int size)
       const Point  shift  = { x, y, z };
       const Points points = P_sum(shift, element.points);
 
-      if (in_cube(points, size))
+      if (check_points(points, InCubeChecker(size)))
       {
          std::ostringstream ost;
          ost << x << "," << y << "," << z << "-" << element.name;
@@ -416,9 +427,9 @@ ElementVec generate_instances(const ElementVec& elements, const int size)
    return instances;
 }
 
-template<typename F>
+template<typename Checker>
 ElementVec remove_equivalent(const ElementVec& elements,
-                             const F& checker)
+                             const Checker& checker)
 {
    ElementVec instances;
 
@@ -490,7 +501,7 @@ ElementVec remove_congruent(const ElementVec& elements,
             points = P_sum(shift_p2, points);
             points = P_div(2,        points);
 
-            if (! in_cube(points, size))
+            if (! check_points(points, InCubeChecker(size)))
             {
                std::cout << print_points(points) << std::endl;
                throw std::runtime_error("remove_congruent: not in_cube");
@@ -515,9 +526,11 @@ Code encode(const Element& element, const int size)
 {
    Code code = 0;
 
+   InCubeChecker in_cube(size);
+
    for (const auto& p : element.points)
    {
-      if (! in_cube(p, size))
+      if (! in_cube.do_check(p))
       {
          throw std::runtime_error("encode: not in cube");
       }
