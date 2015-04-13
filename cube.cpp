@@ -592,7 +592,7 @@ void thread_worker(const int thread_id,  std::mutex& log_mutex,
          std::lock_guard<std::mutex> guard(log_mutex);
 
          std::cout << "Thread "       << thread_id
-                   << ": Done "       << total_ops      << " G ops"
+                   << ": Done "       << total_ops      << " M ops"
                    << ", Time "       << total_duration << " sec"
                    << ", Ops (avg) "  << avg_ops        << " M/sec"
                    << ", Last "       << last_duration  << " sec"
@@ -606,7 +606,7 @@ void thread_worker(const int thread_id,  std::mutex& log_mutex,
          std::cout << std::endl;
       }
 
-      Code code = element_codes[e][i[e]];
+      const Code code = element_codes[e][i[e]];
 
       if (e == 0)
       {
@@ -621,7 +621,7 @@ void thread_worker(const int thread_id,  std::mutex& log_mutex,
 
       arena[e] = arena[e-1] | code;
 
-      if (arena[e] == ARENA_FULL)
+      if (unlikely(arena[e] == ARENA_FULL))
       {
          std::lock_guard<std::mutex> guard(log_mutex);
 
