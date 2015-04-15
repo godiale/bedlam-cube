@@ -612,15 +612,22 @@ public:
 class SolutionReporter
 {
    std::mutex& m_log_mutex;
-
    const ElementVecVec& m_element_instances;
+   const Code ARENA_FULL;
 
 public:
    SolutionReporter(std::mutex& log_mutex,
-                    const ElementVecVec& element_instances)
+                    const ElementVecVec& element_instances,
+                    const Code ARENA_FULL_)
       : m_log_mutex         (log_mutex)
       , m_element_instances (element_instances)
+      , ARENA_FULL          (ARENA_FULL_)
    {}
+
+   bool found(const Code arena) const
+   {
+      return (arena == ARENA_FULL);
+   }
 
    void report(const IdxVec& i)
    {
@@ -637,7 +644,7 @@ public:
 };
 
 void thread_worker(const int thread_id,  std::mutex& log_mutex,
-                   const int ARENA_SIZE, const Code ARENA_FULL,
+                   const int ARENA_SIZE, SolutionReporter& solution_reporter,
                    ElementVecVec element_instances)
 {
    const std::vector<CodeVec> element_codes = 
@@ -660,7 +667,6 @@ void thread_worker(const int thread_id,  std::mutex& log_mutex,
    long iteration = 0;
 
    IterationReporter iteration_reporter(thread_id, log_mutex);
-   SolutionReporter  solution_reporter (log_mutex, element_instances);
 
    while (e > 0 || i[0] < ii[0])
    {
@@ -686,7 +692,7 @@ void thread_worker(const int thread_id,  std::mutex& log_mutex,
 
       arena[e] = arena[e-1] | code;
 
-      if (unlikely(arena[e] == ARENA_FULL))
+      if (unlikely(solution_reporter.found(arena[e])))
       {
          solution_reporter.report(i);
          goto next_i;
@@ -754,6 +760,9 @@ int main()
    std::mutex log_mutex;
    std::vector<std::thread> threads;
 
+   SolutionReporter  solution_reporter (log_mutex, 
+                                        element_instances, ARENA_FULL);
+
    for (int thread_id=0; thread_id < MAX_THREAD; ++thread_id)
    {
       ElementVecVec instances;
@@ -775,8 +784,8 @@ int main()
       instances.push_back(this_thread_instances);
 
       threads.push_back(std::thread (thread_worker,
-                                     thread_id, std::ref(log_mutex), 
-                                     ARENA_SIZE, ARENA_FULL, instances));
+                                     thread_id,  std::ref(log_mutex), 
+                                     ARENA_SIZE, std::ref(solution_reporter), instances));
    }
 
    for (auto& thread : threads)
