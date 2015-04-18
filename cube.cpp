@@ -16,6 +16,8 @@
 #define likely(x)   __builtin_expect((x),1)
 #define unlikely(x) __builtin_expect((x),0)
 
+std::mutex g_log_mutex;
+
 typedef std::array<int, 3> Point;
 typedef std::vector<Point> Points;
 
@@ -546,17 +548,14 @@ Code encode(const Element& element, const int size)
 
 class IterationReporter
 {
-   std::mutex&  m_log_mutex;
-
    const int    m_thread_id;
    const time_t m_start_time;
    time_t       m_last_time;
    long         m_last_iteration;
 
 public:
-   IterationReporter(const int thread_id, std::mutex& log_mutex)
+   IterationReporter(const int thread_id)
       : m_thread_id      (thread_id)
-      , m_log_mutex      (log_mutex)
       , m_start_time     (time(0))
       , m_last_time      (time(0))
       , m_last_iteration (0)
@@ -575,7 +574,7 @@ public:
       m_last_time      = current_time;
       m_last_iteration = iteration;
 
-      std::lock_guard<std::mutex> guard (m_log_mutex);
+      std::lock_guard<std::mutex> guard (g_log_mutex);
 
       std::cout << "Thread "       << m_thread_id
                 << ": Done "       << total_ops      << " M ops"
@@ -593,20 +592,17 @@ public:
    }
 };
 
-class SolutionReporter
+class Solver
 {
-   std::mutex& m_log_mutex;
    const ElementVecVec& m_element_instances;
    const int  ARENA_SIZE;
    const Code ARENA_FULL;
 
 public:
-   SolutionReporter(std::mutex& log_mutex,
-                    const ElementVecVec& element_instances,
-                    const int  ARENA_SIZE_,
-                    const Code ARENA_FULL_)
-      : m_log_mutex         (log_mutex)
-      , m_element_instances (element_instances)
+   Solver(const ElementVecVec& element_instances,
+          const int  ARENA_SIZE_,
+          const Code ARENA_FULL_)
+      : m_element_instances (element_instances)
       , ARENA_SIZE          (ARENA_SIZE_)
       , ARENA_FULL          (ARENA_FULL_)
    {}
@@ -667,7 +663,7 @@ public:
 
    void report(const IdxVec& i)
    {
-      std::lock_guard<std::mutex> guard(m_log_mutex);
+      std::lock_guard<std::mutex> guard(g_log_mutex);
 
       std::cout << "========== SOLUTION ==========" << std::endl;
       for (int n=0, nn=i.size(); n < nn; ++n)
@@ -679,12 +675,10 @@ public:
    }
 };
 
-void thread_worker(const int thread_id,  std::mutex& log_mutex,
-                   SolutionReporter& solution_reporter,
-                   IdxVecVec element_instances)
+void thread_worker(const int thread_id, Solver& solver,
+                   IdxVecVec instances)
 {
-   const std::vector<CodeVec> element_codes =
-      solution_reporter.encode(element_instances);
+   const std::vector<CodeVec> element_codes = solver.encode(instances);
 
    CodeVec arena;
    IdxVec  i;
@@ -702,7 +696,7 @@ void thread_worker(const int thread_id,  std::mutex& log_mutex,
 
    long iteration = 0;
 
-   IterationReporter iteration_reporter(thread_id, log_mutex);
+   IterationReporter iteration_reporter(thread_id);
 
    while (e > 0 || i[0] < ii[0])
    {
@@ -728,9 +722,9 @@ void thread_worker(const int thread_id,  std::mutex& log_mutex,
 
       arena[e] = arena[e-1] | code;
 
-      if (unlikely(solution_reporter.found(arena[e])))
+      if (unlikely(solver.found(arena[e])))
       {
-         solution_reporter.report(i);
+         solver.report(i);
          goto next_i;
       }
 
@@ -754,9 +748,27 @@ void thread_worker(const int thread_id,  std::mutex& log_mutex,
    }
 }
 
-int main()
+void run_solver(Solver& solver)
 {
    const int THREADS_NUM = 2;
+   std::vector<std::thread> threads;
+
+   for (int thread_id=0; thread_id < THREADS_NUM; ++thread_id)
+   {
+      const IdxVecVec instances = solver.split(thread_id, THREADS_NUM);
+
+      threads.push_back(std::thread (thread_worker, thread_id,
+                                     std::ref(solver), instances));
+   }
+
+   for (auto& thread : threads)
+   {
+      thread.join();
+   }
+}
+
+int main()
+{
 #if 1
    const int  ARENA_SIZE = 4;
    const Code ARENA_FULL = 0xFFFFFFFFFFFFFFFF;
@@ -793,24 +805,10 @@ int main()
    }
    std::cout << std::endl;
 
-   std::mutex log_mutex;
+
    std::vector<std::thread> threads;
 
-   SolutionReporter solution_reporter (log_mutex, element_instances, 
-                                       ARENA_SIZE, ARENA_FULL);
-
-   for (int thread_id=0; thread_id < THREADS_NUM; ++thread_id)
-   {
-      const IdxVecVec instances = solution_reporter.split(thread_id, THREADS_NUM);
-
-      threads.push_back(std::thread (thread_worker,
-                                     thread_id,  std::ref(log_mutex), 
-                                     std::ref(solution_reporter), instances));
-   }
-
-   for (auto& thread : threads)
-   {
-      thread.join();
-   }
+   Solver solver(element_instances, ARENA_SIZE, ARENA_FULL);
+   run_solver(solver);
 }
 
