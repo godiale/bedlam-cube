@@ -190,6 +190,17 @@ public:
    }
 };
 
+class IntersectionCube2x2Checker 
+{
+public:
+   bool do_check(const Point& p) const
+   {
+      return (0 <= p[0] && p[0] < 2 &&
+              0 <= p[1] && p[1] < 2 &&
+              0 <= p[2] && p[2] < 2);
+   }
+};
+
 template<typename Checker>
 bool check_points(const Points& points, const Checker& checker)
 {
@@ -201,6 +212,24 @@ bool check_points(const Points& points, const Checker& checker)
       }
    }
    return true;
+}
+
+template<typename Checker>
+bool check_points_any(const Points& points, const Checker& checker)
+{
+   if (points == Points())
+   {
+      return true;
+   }
+
+   for (const auto& p : points)
+   {
+      if (checker.do_check(p))
+      {
+         return true;
+      }
+   }
+   return false;
 }
 
 struct Element
@@ -415,6 +444,8 @@ ElementVec generate_instances(const Element& element, const int size)
          instances.push_back(Element(ost.str(), points));
       }
    }
+
+   instances.push_back(Element("N", Points()));
 
    return instances;
 }
@@ -676,10 +707,124 @@ public:
    }
 };
 
-void thread_worker(const int thread_id, Solver& solver,
+class Solver_2x2
+{
+   const ElementVecVec& m_element_instances;
+   IdxVecVec m_candidates;
+   IdxVecVec m_reversed;
+   Code ARENA_FULL;
+
+public:
+   Solver_2x2(const ElementVecVec& element_instances)
+      : m_element_instances (element_instances)
+   {
+      for (const auto& ei : m_element_instances)
+      {
+         IdxVec indexes;
+
+         for (int k=0, kk=ei.size(); k < kk; ++k)
+         {
+            const Element& e = ei[k];
+            if (check_points_any(e.points, IntersectionCube2x2Checker()))
+            {
+               indexes.push_back(k);
+            }
+         }
+
+         m_candidates.push_back(indexes);
+      }
+
+      const Points pts = {{0,0,0},{1,0,0},{0,1,0},{1,1,0},
+                          {0,0,1},{1,0,1},{0,1,1},{1,1,1}};
+      const Element e("", pts);
+      ARENA_FULL = ::encode(e,4);
+   }
+
+   bool found(const Code arena) const
+   {
+      return ((arena & ARENA_FULL) == ARENA_FULL);
+   }
+
+   CodeVecVec encode(const IdxVecVec& element_instances) const
+   {
+      CodeVecVec element_codes;
+
+      for (int n=0, nn=element_instances.size(); n < nn; ++n)
+      {
+         const IdxVec& ei = element_instances[n];
+         CodeVec codes;
+
+         for (int k=0, kk=ei.size(); k < kk; ++k)
+         {
+            codes.push_back(::encode(m_element_instances[n][ei[k]], 4));
+         }
+         element_codes.push_back(codes);
+      }
+      return element_codes;
+   }
+
+   IdxVecVec split(const int cohort_id, const int cohorts_num)
+   {
+      IdxVecVec instances;
+
+      for (int n=0, nn=m_candidates.size(); n < nn-1; ++n)
+      {
+         const IdxVec& ei = m_candidates[n];
+         IdxVec indexes;
+
+         for (int k=0, kk=ei.size(); k < kk; ++k)
+         {
+            indexes.push_back(ei[k]);
+         }
+         instances.push_back(indexes);
+      }
+
+      IdxVec this_thread_instances;
+      const IdxVec& last_element_instances = m_candidates.back();
+      for (int n=0, nn=last_element_instances.size(); n < nn; ++n)
+      {
+         if (n % cohorts_num == cohort_id)
+         {
+            this_thread_instances.push_back(last_element_instances[n]);
+         }
+      }
+
+      instances.push_back(this_thread_instances);
+
+      return instances;
+   }
+
+   void report(const IdxVec& i, const int e)
+   {
+      std::lock_guard<std::mutex> guard(g_log_mutex);
+#if 0
+      std::cout << "========== SOLUTION ==========" << std::endl;
+      for (int n=0, nn=i.size(); n < e+1; ++n)
+      {
+         std::cout << i[n] << ",";
+      }
+      std::cout << std::endl;
+      for (int n=0, nn=i.size(); n < e+1; ++n)
+      {
+         const Element& e = m_element_instances[n][m_candidates[n][i[n]]];
+         std::cout << e.name << ": " << print_points(e.points) << std::endl;
+      }
+      std::cout << "==============================" << std::endl;
+#endif
+     std::cout << "SLN" << std::endl;
+   }
+};
+
+
+void thread_worker(const int thread_id, Solver_2x2& solver,
                    IdxVecVec instances)
 {
    const std::vector<CodeVec> element_codes = solver.encode(instances);
+
+g_log_mutex.lock();
+std::cout << print_code(element_codes[3][4], 4) << std::endl;
+std::cout << print_code(element_codes[3][4], 4) << std::endl;
+g_log_mutex.unlock();
 
    CodeVec arena;
    IdxVec  i;
@@ -725,7 +870,8 @@ void thread_worker(const int thread_id, Solver& solver,
 
       if (unlikely(solver.found(arena[e])))
       {
-         solver.report(i);
+         
+         solver.report(i, e);
          goto next_i;
       }
 
@@ -749,7 +895,7 @@ void thread_worker(const int thread_id, Solver& solver,
    }
 }
 
-void run_solver(Solver& solver)
+void run_solver(Solver_2x2& solver)
 {
    const int THREADS_NUM = 2;
    std::vector<std::thread> threads;
@@ -772,7 +918,6 @@ int main()
 {
 #if 1
    const int  ARENA_SIZE = 4;
-   const Code ARENA_FULL = 0xFFFFFFFFFFFFFFFF;
    const ElementVec elements = init_elements_4x4();
 #else
    const int  ARENA_SIZE = 2;
@@ -805,8 +950,12 @@ int main()
       std::cout << ei.size() << "|";
    }
    std::cout << std::endl;
-
+#if 0
    Solver solver(element_instances, ARENA_SIZE, ARENA_FULL);
    run_solver(solver);
+#else
+   Solver_2x2 solver(element_instances);
+   run_solver(solver);
+#endif
 }
 
