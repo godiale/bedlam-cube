@@ -225,6 +225,7 @@ struct Element
       name   = o.name;
       points = o.points;
       normalize();
+      return *this;
    }
 
 private:
@@ -804,9 +805,6 @@ int main()
       std::cout << ei.size() << "|";
    }
    std::cout << std::endl;
-
-
-   std::vector<std::thread> threads;
 
    Solver solver(element_instances, ARENA_SIZE, ARENA_FULL);
    run_solver(solver);
