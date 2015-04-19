@@ -546,7 +546,7 @@ Code encode(const Element& element, const int size)
    return code;
 }
 
-class IterationReporter
+class Progress
 {
    const int    m_thread_id;
    const time_t m_start_time;
@@ -554,7 +554,7 @@ class IterationReporter
    long         m_last_iteration;
 
 public:
-   IterationReporter(const int thread_id)
+   Progress(const int thread_id)
       : m_thread_id      (thread_id)
       , m_start_time     (time(0))
       , m_last_time      (time(0))
@@ -696,7 +696,7 @@ void thread_worker(const int thread_id, Solver& solver,
 
    long iteration = 0;
 
-   IterationReporter iteration_reporter(thread_id);
+   Progress progress(thread_id);
 
    while (e > 0 || i[0] < ii[0])
    {
@@ -704,7 +704,7 @@ void thread_worker(const int thread_id, Solver& solver,
 
       if (unlikely(iteration % (long(10000)*1000000) == 0))
       {
-         iteration_reporter.report(iteration, i, ii);
+         progress.report(iteration, i, ii);
       }
 
       const Code code = element_codes[e][i[e]];
