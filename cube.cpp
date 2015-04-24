@@ -662,14 +662,14 @@ public:
       return instances;
    }
 
-   void report(const IdxVec& i)
+   void report(const IdxVec& i, const IdxVecVec& instances)
    {
       std::lock_guard<std::mutex> guard(g_log_mutex);
 
       std::cout << "========== SOLUTION ==========" << std::endl;
       for (int n=0, nn=i.size(); n < nn; ++n)
       {
-         const Element& e = m_element_instances[n][i[n]];
+         const Element& e = m_element_instances[n][instances[n][i[n]]];
          std::cout << e.name << ": " << print_points(e.points)  << std::endl;
       }
       std::cout << "==============================" << std::endl;
@@ -725,7 +725,7 @@ void thread_worker(const int thread_id, Solver& solver,
 
       if (unlikely(solver.found(arena[e])))
       {
-         solver.report(i);
+         solver.report(i, instances);
          goto next_i;
       }
 
