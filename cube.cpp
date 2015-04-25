@@ -27,7 +27,8 @@ typedef unsigned long Code;
 typedef std::vector<Code>    CodeVec;
 typedef std::vector<CodeVec> CodeVecVec;
 
-typedef std::vector<int>    IdxVec;
+typedef size_t              Idx;
+typedef std::vector<Idx>    IdxVec;
 typedef std::vector<IdxVec> IdxVecVec;
 
 std::string print_code(const Code& code, const int size)
@@ -262,18 +263,18 @@ typedef std::vector<Rotator> RotatorVec;
 ElementVec init_elements_4x4()
 {
    return ElementVec ({
-      Element("e8", {{0,0,0},{0,1,0},{0,2,0},{1,1,0},{1,1,1}}),
-      Element("e9", {{0,1,0},{0,2,0},{1,0,0},{1,0,1},{1,1,0}}),
-      Element("eA", {{0,1,0},{0,2,0},{0,1,1},{1,0,0},{1,1,0}}),
-      Element("eB", {{0,1,0},{0,1,1},{0,2,1},{1,0,0},{1,1,0}}),
+      Element("e0", {{0,1,0},{1,0,0},{1,1,0},{1,2,0},{2,1,0}}),
+      Element("e1", {{0,0,0},{1,0,0},{1,1,0},{1,2,0},{2,1,0}}),
+      Element("e2", {{0,0,0},{0,1,0},{1,1,0},{1,2,0},{2,2,0}}),
       Element("e3", {{0,0,0},{0,1,0},{0,2,0},{0,0,1},{1,0,0}}),
       Element("e4", {{0,0,0},{0,1,0},{0,2,0},{0,1,1},{1,0,0}}),
       Element("e5", {{0,0,0},{0,1,0},{0,2,0},{0,1,1},{1,1,0}}),
       Element("e6", {{0,0,0},{0,0,1},{1,0,0},{1,1,0},{1,2,0}}),
       Element("e7", {{0,0,0},{0,1,0},{0,2,0},{0,2,1},{1,0,0}}),
-      Element("e0", {{0,1,0},{1,0,0},{1,1,0},{1,2,0},{2,1,0}}),
-      Element("e1", {{0,0,0},{1,0,0},{1,1,0},{1,2,0},{2,1,0}}),
-      Element("e2", {{0,0,0},{0,1,0},{1,1,0},{1,2,0},{2,2,0}}),
+      Element("e8", {{0,0,0},{0,1,0},{0,2,0},{1,1,0},{1,1,1}}),
+      Element("e9", {{0,1,0},{0,2,0},{1,0,0},{1,0,1},{1,1,0}}),
+      Element("eA", {{0,1,0},{0,2,0},{0,1,1},{1,0,0},{1,1,0}}),
+      Element("eB", {{0,1,0},{0,1,1},{0,2,1},{1,0,0},{1,1,0}}),
       Element("eC", {{0,0,0},{0,1,0},{1,0,0},{1,0,1}}),
    });
 }
@@ -562,7 +563,7 @@ public:
       , m_last_iteration (0)
    {}
 
-   void report(const long iteration, const IdxVec& i, const IdxVec& ii)
+   void report(const long iteration, const IdxVec& ii, const IdxVecVec& cc)
    {
       const time_t current_time   = time(0);
       const int    total_duration = current_time - m_start_time + 1;
@@ -585,9 +586,9 @@ public:
                 << ", Ops (last) " << last_ops       << " M/sec"
                 << std::endl;
 
-      for (int n=0, nn=i.size(); n < nn; ++n)
+      for (int ee=0, em=ii.size(); ee < em; ++ee)
       {
-         std::cout << i[n] << ":" << ii[n] << "|";
+         std::cout << ii[ee] << ":" << cc[ee].size() << "|";
       }
       std::cout << std::endl;
    }
@@ -676,76 +677,79 @@ public:
    }
 };
 
-void thread_worker(const int thread_id, Solver& solver,
-                   IdxVecVec instances)
+void thread_worker(const int thread_id, Solver& solver, IdxVecVec instances)
 {
-   const std::vector<CodeVec> element_codes = solver.encode(instances);
+   const CodeVecVec codes = solver.encode(instances);
 
-   CodeVec arena;
-   IdxVec  i;
-   IdxVec  ii;
+   CodeVec    arena;
+   IdxVec     ii;
+   IdxVecVec  cc;
 
-   for (const auto& c : element_codes)
+   for (const auto& c : codes)
    {
       arena.push_back(0);
-      i.push_back(0);
-      ii.push_back(c.size());
+      ii.push_back(0);
+      IdxVec cn;
+      for (Idx n=0, nn=c.size(); n < nn; ++n)
+      {
+         cn.push_back(n);
+      }
+      cc.push_back(cn);
    }
 
-   int e  = 0;
-   int ee = element_codes.size();
+   Idx ee = 0;
 
    long iteration = 0;
 
    Progress progress(thread_id);
 
-   while (e > 0 || i[0] < ii[0])
+   while (ee > 0 || ii[0] < cc[0].size())
    {
       ++iteration;
 
       if (unlikely(iteration % (long(10000)*1000000) == 0))
       {
-         progress.report(iteration, i, ii);
+         progress.report(iteration, ii, cc);
       }
 
-      const Code code = element_codes[e][i[e]];
+      const Code code = codes[ee][ii[ee]];
 
-      if (e == 0)
+      if (ee == 0)
       {
          arena[0] = code;
-         goto next_e;
+         goto next_ee;
       }
 
-      if (arena[e-1] & code)
+      if (arena[ee-1] & code)
       {
-         goto next_i;
+         goto next_ii;
       }
 
-      arena[e] = arena[e-1] | code;
+      arena[ee] = arena[ee-1] | code;
 
-      if (unlikely(solver.found(arena[e])))
+      if (unlikely(solver.found(arena[ee])))
       {
-         solver.report(i, instances);
-         goto next_i;
+         solver.report(ii, instances);
+         goto next_ii;
       }
 
-      next_e:
+      next_ee:
 
-      if (e + 1 < ee)
+      if (ee + 1 < cc.size())
       {
-         ++e;
+         ++ee;
          continue;
       }
 
-      next_i:
+      next_ii:
 
-      while (e > 0 && i[e] + 1 == ii[e])
+      while (ee > 0 && ii[ee] + 1 == cc[ee].size())
       {
-         i[e] = 0;
-         --e;
+         ii[ee] = 0;
+         --ee;
       }
 
-      ++i[e];
+      ++ii[ee];
    }
 }
 
