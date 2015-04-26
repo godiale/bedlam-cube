@@ -663,14 +663,14 @@ public:
       return instances;
    }
 
-   void report(const IdxVec& i, const IdxVecVec& instances)
+   void report(const IdxVec& ii, const IdxVecVec& cc)
    {
       std::lock_guard<std::mutex> guard(g_log_mutex);
 
       std::cout << "========== SOLUTION ==========" << std::endl;
-      for (int n=0, nn=i.size(); n < nn; ++n)
+      for (int n=0, nn=ii.size(); n < nn; ++n)
       {
-         const Element& e = m_element_instances[n][instances[n][i[n]]];
+         const Element& e = m_element_instances[n][cc[n][ii[n]]];
          std::cout << e.name << ": " << print_points(e.points)  << std::endl;
       }
       std::cout << "==============================" << std::endl;
@@ -681,21 +681,24 @@ void thread_worker(const int thread_id, Solver& solver, IdxVecVec instances)
 {
    const CodeVecVec codes = solver.encode(instances);
 
-   CodeVec    arena;
-   IdxVec     ii;
-   IdxVecVec  cc;
+   CodeVec   arena;
+   IdxVec    ii;
+   IdxVec    cn;
+   IdxVecVec cc;
 
    for (const auto& c : codes)
    {
       arena.push_back(0);
       ii.push_back(0);
-      IdxVec cn;
+      cn.clear();
       for (Idx n=0, nn=c.size(); n < nn; ++n)
       {
          cn.push_back(n);
       }
       cc.push_back(cn);
    }
+
+   std::vector<IdxVecVec> occ (codes.size(), cc);
 
    Idx ee = 0;
 
@@ -707,16 +710,17 @@ void thread_worker(const int thread_id, Solver& solver, IdxVecVec instances)
    {
       ++iteration;
 
-      if (unlikely(iteration % (long(10000)*1000000) == 0))
+      if (unlikely(iteration % (long(100)*1000000) == 0))
       {
          progress.report(iteration, ii, cc);
       }
 
-      const Code code = codes[ee][ii[ee]];
+      const Code code = codes[ee][cc[ee][ii[ee]]];
 
       if (ee == 0)
       {
          arena[0] = code;
+         occ[0] = cc;
          goto next_ee;
       }
 
@@ -729,7 +733,7 @@ void thread_worker(const int thread_id, Solver& solver, IdxVecVec instances)
 
       if (unlikely(solver.found(arena[ee])))
       {
-         solver.report(ii, instances);
+         solver.report(ii, cc);
          goto next_ii;
       }
 
@@ -737,7 +741,34 @@ void thread_worker(const int thread_id, Solver& solver, IdxVecVec instances)
 
       if (ee + 1 < cc.size())
       {
+         for (Idx e=ee+1; e < cc.size(); ++e)
+         {
+            cn.clear();
+
+            IdxVec& cv = cc[e];
+
+            for (Idx n=0, nn=cc[e].size(); n < nn; ++n)
+            {
+               const Code c = codes[e][cv[n]];
+
+               if (! (arena[ee] & c))
+               {
+                  cn.push_back(cv[n]);
+               }
+            }
+
+            if (cn.empty())
+            {
+               goto next_ii;
+            }
+
+            cv = cn;
+         }
+
+         occ[ee+1] = cc;
+
          ++ee;
+
          continue;
       }
 
@@ -747,6 +778,11 @@ void thread_worker(const int thread_id, Solver& solver, IdxVecVec instances)
       {
          ii[ee] = 0;
          --ee;
+      }
+
+      for (Idx e=ee; e < cc.size(); ++e)
+      {
+         cc[e] = occ[ee][e];
       }
 
       ++ii[ee];
