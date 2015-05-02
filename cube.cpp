@@ -600,6 +600,7 @@ class Solver
    const ElementVecVec& m_element_instances;
    std::unordered_map<Code, CodeVec> m_dominos;
    const int  ARENA_SIZE;
+   const int  ARENA_SIZE_3;
    const Code ARENA_FULL;
 
 public:
@@ -608,6 +609,7 @@ public:
           const Code ARENA_FULL_)
       : m_element_instances (element_instances)
       , ARENA_SIZE          (ARENA_SIZE_)
+      , ARENA_SIZE_3        (ARENA_SIZE*ARENA_SIZE*ARENA_SIZE)
       , ARENA_FULL          (ARENA_FULL_)
    {
       generate_dominos();
@@ -650,6 +652,31 @@ public:
 
    bool arenaValid(const Code arena) const
    {
+      for (int n=0; n < ARENA_SIZE_3; ++n)
+      {
+         const Code code = 1 << n;
+         if (arena & code)
+         {
+            continue;
+         }
+
+         const CodeVec& dominos = m_dominos.at(code);
+         bool isolated = true;
+          
+         for (const auto& dcode : dominos)
+         {
+            if (! (arena & dcode))
+            {
+               isolated = false;
+               break;
+            }
+         }
+         if (isolated)
+         {
+            return false;
+         }
+      }
+
       return true;
    }
 
