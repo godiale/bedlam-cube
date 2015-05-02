@@ -12,6 +12,7 @@
 #include <mutex>
 #include <functional>
 #include <cassert>
+#include <unordered_map>
 
 #define likely(x)   __builtin_expect((x),1)
 #define unlikely(x) __builtin_expect((x),0)
@@ -597,6 +598,7 @@ public:
 class Solver
 {
    const ElementVecVec& m_element_instances;
+   std::unordered_map<Code, CodeVec> m_dominos;
    const int  ARENA_SIZE;
    const Code ARENA_FULL;
 
@@ -607,9 +609,51 @@ public:
       : m_element_instances (element_instances)
       , ARENA_SIZE          (ARENA_SIZE_)
       , ARENA_FULL          (ARENA_FULL_)
-   {}
+   {
+      generate_dominos();
+   }
 
-   bool found(const Code arena) const
+   void generate_dominos()
+   {
+      const ElementVec dominos = {
+         Element("x+1", {{0,0,0},{+1,+0,+0}}),
+         Element("x-1", {{0,0,0},{-1,+0,-0}}),
+         Element("y+1", {{0,0,0},{+0,+1,+0}}),
+         Element("y-1", {{0,0,0},{-0,-1,-0}}),
+         Element("z+1", {{0,0,0},{+0,+0,+1}}),
+         Element("z-1", {{0,0,0},{+0,+0,-1}}),
+      };
+
+      InCubeChecker in_cube(ARENA_SIZE);
+
+      for (int x=0; x < ARENA_SIZE; ++x)
+      for (int y=0; y < ARENA_SIZE; ++y)
+      for (int z=0; z < ARENA_SIZE; ++z)
+      {
+         const Point   shift = { x, y, z };
+         const Element point ("e", { shift});
+         const Code    hcode = ::encode(point, ARENA_SIZE);
+
+         for (const auto e : dominos)
+         {
+            const Points points = P_sum(shift, e.points);
+            const Element domino ("d", points);
+
+            if (check_points(points, InCubeChecker(ARENA_SIZE)))
+            {
+               const Code code = ::encode(domino, ARENA_SIZE);
+               m_dominos[hcode].push_back(code);
+            }
+         }
+      }
+   }
+
+   bool arenaValid(const Code arena) const
+   {
+      return true;
+   }
+
+   bool solutionFound(const Code arena) const
    {
       return (arena == ARENA_FULL);
    }
@@ -663,14 +707,14 @@ public:
       return instances;
    }
 
-   void report(const IdxVec& ii, const IdxVecVec& cc)
+   void report(const IdxVecVec& instances, const IdxVec& ii, const IdxVecVec& cc)
    {
       std::lock_guard<std::mutex> guard(g_log_mutex);
 
       std::cout << "========== SOLUTION ==========" << std::endl;
       for (int n=0, nn=ii.size(); n < nn; ++n)
       {
-         const Element& e = m_element_instances[n][cc[n][ii[n]]];
+         const Element& e = m_element_instances[n][instances[n][cc[n][ii[n]]]];
          std::cout << e.name << ": " << print_points(e.points)  << std::endl;
       }
       std::cout << "==============================" << std::endl;
@@ -731,9 +775,14 @@ void thread_worker(const int thread_id, Solver& solver, IdxVecVec instances)
 
       arena[ee] = arena[ee-1] | code;
 
-      if (unlikely(solver.found(arena[ee])))
+      if (unlikely(solver.solutionFound(arena[ee])))
       {
-         solver.report(ii, cc);
+         solver.report(instances, ii, cc);
+         goto next_ii;
+      }
+
+      if (! solver.arenaValid(arena[ee]))
+      {
          goto next_ii;
       }
 
